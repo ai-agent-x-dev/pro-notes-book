@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pro Notes Book</title>
+
+    <meta name="description" content="Offline-capable markdown notes with notebooks, tags, search and a local agent.">
+    <meta name="theme-color" content="#0a0a0a">
+    <meta name="referrer" content="no-referrer">
+
+    <!--
+      Content-Security-Policy as a meta tag because GitHub Pages serves static
+      files only and cannot send response headers. This is the structural
+      backstop: DOMPurify is the primary defence for the preview, and this is
+      what limits the damage if that is ever bypassed by a parser-differential
+      bug or a sanitiser regression.
+
+      Every directive is 'self'. That is not aspirational: the app loads
+      nothing from any other origin. Markdown libraries are vendored, the font
+      is self-hosted, and there are no analytics, CDN or font requests left, so
+      'self' is the whole policy and there is nothing to widen later.
+
+      No 'unsafe-inline' anywhere: there are no inline <script>, <style> or
+      style="" attributes in this document, and the few style assignments in
+      the JS go through CSSOM, which CSP does not restrict.
+
+      connect-src 'self' also enforces the agent panel's documented
+      same-origin rule at the browser level.
+
+      frame-ancestors is deliberately NOT here: it is ignored in a meta tag and
+      only logs a console warning. Clickjacking protection has to come from a
+      real header, which only the Worker can send -- see SECURITY_HEADERS in
+      _worker.js. On GitHub Pages there is no way to set it.
+    -->
+    <meta http-equiv="Content-Security-Policy" content="
+        default-src 'self';
+        base-uri 'none';
+        object-src 'none';
+        form-action 'none';
+        script-src 'self';
+        style-src 'self';
+        font-src 'self';
+        img-src 'self' data:;
+        connect-src 'self';
+        manifest-src 'self';
+        worker-src 'self'">
+
+    <link rel="icon" href="assets/icons/favicon.svg" type="image/svg+xml">
+    <link rel="alternate icon" href="favicon.ico">
+    <link rel="manifest" href="manifest.json">
+
+    <!--
+      Self-hosted Inter. Loaded before the app styles so 'Inter' is defined by
+      the time main.css references it, and same-origin so the service worker can
+      precache it — the UI then renders with the real font on the very first
+      offline load instead of silently falling back mid-session.
+
+      assets/fonts/fonts.css declares a single variable file covering weights
+      100-900; see assets/fonts/VENDORED.md.
+    -->
+    <link rel="stylesheet" href="assets/fonts/fonts.css">
+    <link rel="stylesheet" href="styles/main.css">
+    <link rel="stylesheet" href="styles/components.css">
+
+    <!--
+      Vendored from jsDelivr, byte-identical to the previously pinned CDN
+      copies (see assets/vendor/VENDORED.md). Served from this origin so the
+      service worker can precache them and Markdown preview keeps working
+      offline on first load.
+
+      The integrity hashes are kept even though the scripts are same-origin:
+      they still act as a tripwire if either file is ever modified in place,
+      and a mismatch blocks execution rather than silently running new code.
+    -->
+    <script
+        src="assets/vendor/marked.min.js"
+        integrity="sha384-H+hy9ULve6xfxRkWIh/YOtvDdpXgV2fmAGQkIDTxIgZwNoaoBal14Di2YTMR6MzR"></script>
+    <script
+        src="assets/vendor/purify.min.js"
+        integrity="sha384-eEu5CTj3qGvu9PdJuS+YlkNi7d2XxQROAFYOr59zgObtlcux1ae1Il3u7jvdCSWu"></script>
+</head>
+<body>
+    <div class="app-container">
+        <header class="app-header">
+            <div class="logo">
+                <h1>Pro Notes</h1>
+            </div>
+            <div class="search-container">
+                <input type="text" id="search-input" placeholder="Search notes... (Ctrl+K)"
+                       class="search-input" role="combobox" aria-expanded="false"
+                       aria-controls="search-results" autocomplete="off">
+                <div id="search-results" class="search-results" role="listbox" aria-hidden="true"></div>
+            </div>
+            <div class="header-actions">
+                <button id="new-note-btn" class="btn btn-primary">New Note</button>
+                <button id="agent-toggle" class="btn btn-secondary">AI Agent</button>
+            </div>
+        </header>
+
+        <div class="app-body">
+            <aside class="sidebar">
+                <div class="sidebar-header">
+                    <h2>Notebooks</h2>
+                    <button id="new-notebook-btn" class="btn-icon" title="New notebook">+</button>
+                </div>
+                <div id="notebook-list" class="notebook-list" role="list"></div>
+
+                <div class="sidebar-header">
+                    <h2>Notes</h2>
+                    <span id="note-list-count" class="notebook-count">0</span>
+                </div>
+                <div id="note-list" class="notebook-list" role="list"></div>
+
+                <div class="sidebar-header">
+                    <h2>Tags</h2>
+                </div>
+                <div id="tag-list" class="tag-list" role="list"></div>
+
+                <div class="data-controls">
+                    <button id="export-btn" class="btn btn-secondary">Export</button>
+                    <button id="import-btn" class="btn btn-secondary">Import</button>
+                    <input type="file" id="import-input" accept="application/json,.json" hidden>
+                </div>
+            </aside>
+
+            <main class="note-editor">
+                <div class="note-header">
+                    <input type="text" id="note-title" placeholder="Note Title" class="note-title-input">
+                    <div class="note-actions">
+                        <button id="save-note-btn" class="btn btn-primary" disabled>Save</button>
+                        <button id="delete-note-btn" class="btn btn-danger">Delete</button>
+                    </div>
+                </div>
+                <div class="editor-container">
+                    <div class="editor-toolbar">
+                        <div class="toolbar-group">
+                            <button class="toolbar-btn" data-action="bold" title="Bold (Ctrl+B)"><strong>B</strong></button>
+                            <button class="toolbar-btn" data-action="italic" title="Italic (Ctrl+I)"><em>I</em></button>
+                            <button class="toolbar-btn" data-action="heading" title="Heading">#</button>
+                            <button class="toolbar-btn" data-action="list" title="List">•</button>
+                            <button class="toolbar-btn" data-action="link" title="Link">🔗</button>
+                        </div>
+                        <div class="toolbar-group">
+                            <button id="preview-toggle" class="toolbar-btn" title="Toggle preview (Ctrl+P)">Preview</button>
+                        </div>
+                    </div>
+                    <div class="editor-content">
+                        <textarea id="note-content" placeholder="Start writing in markdown..." spellcheck="true"></textarea>
+                        <div id="note-preview" class="note-preview hidden"></div>
+                    </div>
+                </div>
+            </main>
+
+            <aside class="agent-panel hidden" id="agent-panel">
+                <div class="agent-header">
+                    <h2>AI Agent</h2>
+                    <button id="close-agent" class="btn-icon" title="Close">×</button>
+                </div>
+                <div class="agent-messages" id="agent-messages" aria-live="polite"></div>
+                <div class="agent-input">
+                    <div class="agent-hint">Runs fully offline. Try <code>help</code>.</div>
+                    <textarea id="agent-prompt" placeholder="Ask the agent for help..."></textarea>
+                    <button id="send-agent-prompt" class="btn btn-primary">Send</button>
+                </div>
+            </aside>
+        </div>
+    </div>
+
+    <div id="status" class="status" role="status" aria-live="polite"></div>
+
+    <!-- Load order matters: storage before search, search before app. -->
+    <script src="scripts/storage.js"></script>
+    <script src="scripts/search.js"></script>
+    <script src="scripts/agents.js"></script>
+    <script src="scripts/app.js"></script>
+</body>
+</html>

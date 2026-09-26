@@ -1,0 +1,31 @@
+/*
+ * Inter, self-hosted.
+ *
+ * This is the single variable font that Google's CSS API already served for
+ * Inter latin at weights 300/400/500/600/700 — all five @font-face rules
+ * pointed at this exact same file. It carries a `wght` axis spanning 100-900,
+ * so one 47 KB file covers the whole range the app uses.
+ *
+ * Self-hosting rather than linking fonts.googleapis.com:
+ *   - privacy: a remote font request tells Google the exact time a note was
+ *     read, which is at odds with an app that keeps everything local;
+ *   - offline: a service worker can only precache same-origin URLs, so a CDN
+ *     font would be missing on the first offline load and the UI would silently
+ *     fall back mid-session;
+ *   - supply chain: no third-party script or stylesheet at runtime at all.
+ *
+ * Unmodified, so the Reserved Font Name "Inter" may still be used (OFL
+ * condition 3). See LICENSE.inter.txt and VENDORED.md.
+ */
+
+@font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: swap;
+    src: url('inter-latin-var.woff2') format('woff2');
+    /* Latin subset only, matching the file that was downloaded. */
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+        U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191,
+        U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}

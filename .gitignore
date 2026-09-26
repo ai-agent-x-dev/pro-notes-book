@@ -1,0 +1,13 @@
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Node (only if you add tooling later)
+node_modules/
+
+# Local env / secrets — never commit these
+.env
+.env.*

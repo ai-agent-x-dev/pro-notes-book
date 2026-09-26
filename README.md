@@ -1,5 +1,8 @@
 # pro-notes-book
 
+**[Live site →](https://ai-agent-x-dev.github.io/pro-notes-book/)**
+<sub>https://ai-agent-x-dev.github.io/pro-notes-book/</sub>
+
 A local-first Markdown notes app. No build step, no npm dependencies, no
 framework — plain HTML, CSS, and classic scripts. Notes live in
 `localStorage` on your own machine; nothing is sent anywhere.
@@ -78,6 +81,11 @@ python3 -m http.server 8000
 
 A static server is required. Opening `index.html` over `file://` will not work:
 browsers block module and worker loads from that scheme.
+
+There is nothing to install either way — or you can just use the
+[deployed copy](https://ai-agent-x-dev.github.io/pro-notes-book/). Because notes
+live in `localStorage`, each browser keeps its own separate set; the deployed
+site and a local copy do not see each other's notes.
 
 ## Deploying to GitHub Pages
 

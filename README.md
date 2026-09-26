@@ -106,7 +106,7 @@ and its ignore rules silently drop **any path beginning with `_` or `.`**:
 | Path | Under Jekyll | With `.nojekyll` |
 | --- | --- | --- |
 | `_worker.js` | not published | published (inert on Pages) |
-| `.gitignore`, `assets/icons/.gitkeep` | not published | published (harmless) |
+| `.gitignore` | not published | published (patterns only) |
 
 So `.nojekyll` mainly guarantees the deployment is a straight file copy, with
 no build step able to reinterpret or filter the output — which is the same
@@ -115,7 +115,7 @@ no build step able to reinterpret or filter the output — which is the same
 It also means **everything in the repository becomes public**, dotfiles
 included. That is fine here: the only non-asset files are this README, the
 MIT `LICENSE`, `.gitignore` (patterns only, no values) and `_worker.js` (it
-reads no bindings and holds no credentials). If you ever drop a real `.env`
+reads no bindings and holds no credentials) — three files, 3 KB in total. If you ever drop a real `.env`
 here, add it to `.gitignore` *and* move it off the published branch —
 `.gitignore` alone will not save you, because Jekyll is no longer filtering.
 

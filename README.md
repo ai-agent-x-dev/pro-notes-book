@@ -37,7 +37,6 @@ pro-notes-book/
 ├── manifest.json           # PWA metadata (name, icons, theme colour)
 ├── sw.js                   # service worker: precache + offline shell
 ├── favicon.ico
-├── .nojekyll               # empty; tells GitHub Pages to skip Jekyll
 ├── LICENSE                 # MIT (this project only; see the note at the end)
 ├── styles/
 │   ├── main.css            # theme tokens, layout, editor, preview
@@ -94,33 +93,26 @@ must be **relative** (`styles/main.css`, `./scripts/app.js`) — a root-absolute
 path like `/styles/main.css` returns 404 under the `/<repo>/` prefix. All
 current asset references already follow this rule.
 
-### Why there is a `.nojekyll` file
+### Why there is no `.nojekyll`
 
-An **empty** `.nojekyll` at the repository root tells GitHub Pages to skip
-Jekyll and publish the files as they are.
+GitHub Pages runs Jekyll by default, and Jekyll's ignore rules silently drop
+every path beginning with `_` or `.`. The empty `.nojekyll` file would switch
+that off — it is deliberately **not** here, for two reasons.
 
-This project needs that. There is no `_config.yml`, no `Gemfile` and no Liquid
-template, so Jekyll has nothing to contribute — but by default it still runs,
-and its ignore rules silently drop **any path beginning with `_` or `.`**:
+Jekyll cannot alter this site either way. It only applies templating to files
+carrying YAML front matter, and no committed file has any, so everything is
+published verbatim regardless. So the file would buy correctness we already
+have.
 
-| Path | Under Jekyll | With `.nojekyll` |
-| --- | --- | --- |
-| `_worker.js` | not published | published (inert on Pages) |
-| `.gitignore` | not published | published (patterns only) |
+And leaving Jekyll on keeps the public surface smaller: `_worker.js` and
+`.gitignore` are *not* deployed. Neither is needed at runtime, and neither
+belongs in a public web root — `.gitignore` in particular is only ever a
+developer-side gate, and GitHub Pages builds from the committed tree anyway, so
+it protects the repository regardless of what the site serves.
 
-So `.nojekyll` mainly guarantees the deployment is a straight file copy, with
-no build step able to reinterpret or filter the output — which is the same
-"what you committed is what ships" property the vendored assets rely on.
-
-It also means **everything in the repository becomes public**, dotfiles
-included. That is fine here: the only non-asset files are this README, the
-MIT `LICENSE`, `.gitignore` (patterns only, no values) and `_worker.js` (it
-reads no bindings and holds no credentials) — three files, 3 KB in total. If you ever drop a real `.env`
-here, add it to `.gitignore` *and* move it off the published branch —
-`.gitignore` alone will not save you, because Jekyll is no longer filtering.
-
-Note the spelling: the file must be `.nojekyll`. A typo such as `.nojkyll`
-is just an ordinary dotfile and turns the behaviour off without any warning.
+Worth knowing if this ever changes: dropping `.nojekyll` in publishes
+everything in the repository, dotfiles included. A real `.env` must then be
+kept off the published branch, not merely gitignored.
 
 ### `_worker.js` is not used by GitHub Pages
 

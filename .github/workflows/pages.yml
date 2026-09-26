@@ -1,0 +1,48 @@
+name: Deploy to GitHub Pages
+
+# Publish the site on every push to main, with no build step: the repository is
+# already the finished artifact. The alternative ("Deploy from a branch") runs
+# Jekyll and shows no per-step logs, which makes a failure invisible until
+# someone opens the browser and sees a 404. Here the run log is the diagnosis.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege: read the repo, write only to Pages, and sign the OIDC token
+# that deploy-pages exchanges for a deployment.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race; a newer push supersedes an in-flight one.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      # No build step on purpose. There is no _config.yml, no Gemfile and no
+      # Liquid template, so Jekyll would only add a failure mode. The static
+      # files are the output.
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

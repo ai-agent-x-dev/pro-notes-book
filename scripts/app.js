@@ -889,7 +889,14 @@
             getState: () => state,
             getSearch: () => search,
             getAgent: () => agents,
-            getCurrentNoteSnapshot: () => (state.note ? { ...state.note } : null),
+            // What the user sees, not the last save: state.note only catches up
+            // with the editor on save, so an agent command issued between
+            // typing and autosave used to act on stale text.
+            getCurrentNoteSnapshot: () => (state.note ? {
+                ...state.note,
+                title: $('note-title').value.trim() || state.note.title,
+                content: $('note-content').value
+            } : null),
             saveNote: (silent) => saveNote(silent),
             newNote,
             openNote,

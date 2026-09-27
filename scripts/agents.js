@@ -1,29 +1,41 @@
 /* agents.js — the AI agent panel
  *
- * SECURITY MODEL — read this before wiring a real model.
+ * SECURITY MODEL — read this before changing the remote path.
  *
  * There is no API key in this file and there must never be one. Anything in
  * the browser is readable by anyone who loads the page, so a key here is a
- * published key. The remote path below therefore POSTs to a same-origin
- * endpoint and expects server-side code there to hold the credential and
- * call the model. _worker.js does NOT implement that route yet, and GitHub
- * Pages cannot run server code at all. A key committed here would be scraped
- * within minutes of the first push to GitHub.
+ * published key, scraped within minutes of the first push to GitHub.
  *
- * Until such an endpoint exists, every command below is local and offline:
- * tokenising, summarising, and pattern-matching only. That is enough for the
- * panel to be useful and testable with no network and no cost.
+ * Instead, prompts the local commands do not handle are POSTed to the
+ * same-origin /api/agent route in _worker.js, which holds the Claude API key
+ * as a Cloudflare secret and calls the model server-side. The browser proves
+ * it may use that route with a passphrase, not with the key.
+ *
+ * Nothing leaves the browser unless a GET probe of the endpoint reports a
+ * model is available. On GitHub Pages (no server code) and offline, the probe
+ * fails and every command stays local: tokenising, summarising and
+ * pattern-matching only.
  */
 (function (global) {
     "use strict";
 
     var DEFAULT_CONFIG = {
-        // Same-origin by default. Point this at your Worker route, e.g.
-        // '/api/agent'. Left null, the agent stays fully offline.
-        agentEndpoint: null,
-        model: 'local-rules',
-        maxNoteChars: 200000
+        // Relative, so it resolves against the page: /api/agent on Cloudflare
+        // Pages (served by _worker.js), and a 404 under GitHub Pages, where the
+        // probe in init() then keeps the panel fully offline. Set to null to
+        // never contact a server at all.
+        agentEndpoint: 'api/agent',
+        // Matches the Worker's MAX_NOTE_CHARS and the app's import cap, so a
+        // note the app can hold is sent whole.
+        maxNoteChars: 200000,
+        maxTitleChars: 500,
+        timeoutMs: 90000
     };
+
+    // The passphrase for the Worker, NOT an API key: the Claude API key only
+    // ever exists server-side. Kept apart from the notes keys so Export never
+    // includes it.
+    var PASSPHRASE_KEY = 'pro-notes-agent-passphrase';
 
     /**
      * @param {object} [options] All optional. `new AgentManager()` is valid and
@@ -39,7 +51,16 @@
         this.messages = opts.messagesEl || document.getElementById('agent-messages');
         this.input = opts.inputEl || document.getElementById('agent-prompt');
         this.sendBtn = opts.sendBtn || document.getElementById('send-agent-prompt');
+        this.hint = opts.hintEl || document.getElementById('agent-hint');
+        this.authRow = opts.authEl || document.getElementById('agent-auth');
+        this.passInput = opts.passInputEl || document.getElementById('agent-passphrase');
+        this.passBtn = opts.passBtn || document.getElementById('agent-passphrase-save');
         this.busy = false;
+        // True once the endpoint's probe says a model is available. Until
+        // then nothing is ever sent to the server.
+        this.remote = false;
+        this.probed = null; // the probe's promise, once started
+        this.pendingPrompt = null;
         this.init();
     }
 
@@ -60,6 +81,88 @@
                 self.send();
             }
         });
+
+        if (this.passBtn && this.passInput) {
+            this.passBtn.addEventListener('click', function () { self.unlock(); });
+            this.passInput.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') { e.preventDefault(); self.unlock(); }
+            });
+        }
+        // No probe here: it runs on first use (focus() or send()), so a
+        // visitor who never opens the panel makes no request, and GitHub
+        // Pages does not log a 404 on every page load.
+    };
+
+    /** Start the endpoint probe once; later calls share its result. */
+    AgentManager.prototype.ensureProbed = function () {
+        if (!this.probed) this.probed = this.probe();
+        return this.probed;
+    };
+
+    /* ---------------------------------------------------------------- remote */
+
+    /**
+     * Ask the endpoint whether a model is available. A GET with no note
+     * content: on GitHub Pages it is a harmless 404, offline the service
+     * worker answers 504, and either way the panel stays local-only.
+     */
+    AgentManager.prototype.probe = function () {
+        var self = this;
+        var endpoint = this.config.agentEndpoint;
+        if (!endpoint || !this.isSameOrigin(endpoint) || typeof fetch !== 'function') {
+            return Promise.resolve(false);
+        }
+        return fetch(endpoint, { cache: 'no-store', credentials: 'same-origin', redirect: 'error' })
+            .then(function (res) {
+                if (!res.ok) return false;
+                return res.json().then(function (data) { return !!(data && data.available === true); });
+            })
+            .catch(function () { return false; })
+            .then(function (available) {
+                self.remote = available;
+                self.setHint();
+                return available;
+            });
+    };
+
+    AgentManager.prototype.setHint = function () {
+        if (!this.hint) return;
+        this.hint.textContent = this.remote
+            ? 'Commands like "help" run locally. Anything else is sent, with the open note, to Claude through this site\'s server.'
+            : 'Runs fully offline. Try "help".';
+    };
+
+    AgentManager.prototype.getPassphrase = function () {
+        try { return global.localStorage.getItem(PASSPHRASE_KEY) || ''; } catch (err) { return ''; }
+    };
+
+    AgentManager.prototype.setPassphrase = function (value) {
+        try {
+            if (value) global.localStorage.setItem(PASSPHRASE_KEY, value);
+            else global.localStorage.removeItem(PASSPHRASE_KEY);
+        } catch (err) { /* storage blocked: it lasts for this page only */ }
+        this.sessionPassphrase = value || '';
+    };
+
+    AgentManager.prototype.showAuth = function (show) {
+        if (!this.authRow) return;
+        this.authRow.classList.toggle('hidden', !show);
+        if (show && this.passInput) this.passInput.focus();
+    };
+
+    /** Store the typed passphrase and retry the prompt that asked for it. */
+    AgentManager.prototype.unlock = function () {
+        var value = this.passInput ? this.passInput.value.trim() : '';
+        if (!value) return;
+        this.passInput.value = '';
+        this.setPassphrase(value);
+        this.showAuth(false);
+        if (this.pendingPrompt) {
+            var retry = this.pendingPrompt;
+            this.pendingPrompt = null;
+            this.input.value = retry;
+            this.send();
+        }
     };
 
     /* ------------------------------------------------------------------ chat */
@@ -79,7 +182,7 @@
         this.setBusy(true);
 
         var self = this;
-        Promise.resolve()
+        this.ensureProbed()
             .then(function () { return self.dispatch(text, ctx); })
             .then(function (reply) {
                 typing.remove();
@@ -117,7 +220,7 @@
         var local = this.runLocal(prompt, ctx);
         if (local) return local;
 
-        if (this.config.agentEndpoint) {
+        if (this.remote && this.config.agentEndpoint) {
             // The header promises "same-origin endpoint", but a comment is not
             // enforcement. If agentEndpoint is ever set from settings, a query
             // string or a shared config, this is what stops note content being
@@ -131,9 +234,9 @@
         }
 
         return this.help(ctx) +
-            '\n\n(No model endpoint configured — this agent is running fully ' +
-            'offline. Set agentEndpoint in DEFAULT_CONFIG in scripts/agents.js ' +
-            'once a server-side /api/agent route exists.)';
+            '\n\n(No model is available on this host, so the assistant runs ' +
+            'fully offline. Deploy to Cloudflare Pages with _worker.js to ' +
+            'connect Claude.)';
     };
 
     /**
@@ -149,6 +252,12 @@
 
         if (/^(help|\?|commands)\b/.test(cmd)) {
             return this.help(ctx);
+        }
+
+        if (cmd === 'lock') {
+            this.setPassphrase('');
+            return 'Passphrase forgotten on this device. The next request to ' +
+                'Claude will ask for it again.';
         }
 
         // Before the note commands: their patterns match anywhere in the
@@ -254,25 +363,53 @@
      */
     AgentManager.prototype.callRemote = function (prompt, ctx) {
         var self = this;
-        var controller = new AbortController();
-        var timer = setTimeout(function () { controller.abort(); }, 30000);
+        var passphrase = this.getPassphrase() || this.sessionPassphrase || '';
+        if (!passphrase) return this.askPassphrase(prompt);
 
-        // Trim the note payload: a 200 KB note is not a useful prompt and
-        // would blow the request budget on every call.
+        var controller = new AbortController();
+        var timeoutMs = this.config.timeoutMs;
+        var timer = setTimeout(function () { controller.abort(); }, timeoutMs);
+
+        // The note is read from the editor snapshot. Both limits equal what
+        // the app can store, so these slices never cut a note the app holds.
         var note = ctx.note
-            ? { title: ctx.note.title, content: ctx.note.content.slice(0, self.config.maxNoteChars) }
+            ? {
+                title: String(ctx.note.title || '').slice(0, self.config.maxTitleChars),
+                content: String(ctx.note.content || '').slice(0, self.config.maxNoteChars)
+            }
             : null;
 
         return fetch(this.config.agentEndpoint, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt: prompt, note: note, model: this.config.model }),
+            headers: {
+                'Content-Type': 'application/json',
+                // A custom header also forces a CORS preflight, which the
+                // Worker never approves, so no other site can call it.
+                'Authorization': 'Bearer ' + passphrase
+            },
+            // No model field: the server decides which model runs.
+            body: JSON.stringify({ prompt: prompt, note: note }),
             signal: controller.signal,
             credentials: 'same-origin',
+            cache: 'no-store',
             redirect: 'error' // a redirect here would leak the prompt elsewhere
         })
             .then(function (res) {
-                if (!res.ok) throw new Error('HTTP ' + res.status);
+                if (res.status === 401) {
+                    self.setPassphrase('');
+                    return { ask: true };
+                }
+                if (!res.ok) {
+                    // The Worker returns { error } with a readable reason.
+                    return self.readCapped(res, 10000, controller)
+                        .then(function (text) { return JSON.parse(text); })
+                        .catch(function () { return null; })
+                        .then(function (data) {
+                            throw new Error(data && typeof data.error === 'string'
+                                ? data.error.slice(0, 300)
+                                : 'HTTP ' + res.status);
+                        });
+                }
                 var type = res.headers.get('content-type') || '';
                 if (type.indexOf('json') === -1) {
                     throw new Error('Expected JSON, got ' + (type || 'no content-type'));
@@ -281,19 +418,31 @@
                     .then(function (text) { return JSON.parse(text); });
             })
             .then(function (data) {
+                if (data && data.ask) {
+                    return self.askPassphrase(prompt, 'That passphrase was not accepted.');
+                }
                 if (!data || typeof data.reply !== 'string') {
                     throw new Error('Malformed response from agent endpoint');
                 }
-                // Bound what reaches innerText/textContent.
-                return data.reply.slice(0, 20000);
+                // Bound what reaches textContent.
+                return data.reply.slice(0, 40000);
             })
             .catch(function (err) {
                 if (err && err.name === 'AbortError') {
-                    throw new Error('Request timed out after 30s.');
+                    throw new Error('Request timed out after ' + Math.round(timeoutMs / 1000) + 's.');
                 }
                 throw err;
             })
             .finally(function () { clearTimeout(timer); });
+    };
+
+    /** Show the passphrase field; the prompt is retried once it is entered. */
+    AgentManager.prototype.askPassphrase = function (prompt, reason) {
+        this.pendingPrompt = prompt;
+        this.showAuth(true);
+        return (reason ? reason + ' ' : '') +
+            'Enter the assistant passphrase below to send this to Claude. ' +
+            'It is stored on this device; type "lock" to forget it.';
     };
 
     /* -------------------------------------------------------------- commands */
@@ -311,6 +460,7 @@
             '  stats                words, characters, reading time',
             '  title                suggest a title',
             '  find <term>          search across every note',
+            '  lock                 forget the Claude passphrase on this device',
             '  help                 this list',
             '',
             where
@@ -434,7 +584,9 @@
         }
     };
 
+    /** Called when the panel opens. */
     AgentManager.prototype.focus = function () {
+        this.ensureProbed();
         if (this.input) this.input.focus();
     };
 

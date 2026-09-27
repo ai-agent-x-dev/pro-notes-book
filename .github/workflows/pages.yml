@@ -46,13 +46,11 @@ jobs:
       # But publish an ALLOWLIST, not the repository root. Deploying via
       # Actions bypasses Jekyll, so nothing filters `_` or `.` paths any more:
       # uploading '.' served _worker.js, .gitignore and anything else that
-      # was ever committed. A new top-level file stays private until it is
-      # added here. `cp` fails the job if a listed file is missing.
+      # was ever committed. The list lives in tools/assemble-site.sh, shared
+      # with the Cloudflare deploy; it fails the job if a listed file is
+      # missing. No --with-worker: GitHub Pages must not serve _worker.js.
       - name: Assemble the published files
-        run: |
-          mkdir _site
-          cp -r index.html manifest.json sw.js favicon.ico LICENSE \
-                assets scripts styles _site/
+        run: sh tools/assemble-site.sh
 
       - name: Upload the site
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1

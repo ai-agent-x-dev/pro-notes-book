@@ -5,7 +5,9 @@
 <sub>https://ai-agent-x-dev.github.io/pro-notes-book/</sub>
 
 A local-first Markdown notes app. Your notes stay in your own browser — there is
-no account, no server, and nothing is uploaded anywhere.
+no account and no server-side copy. The one exception is opt-in: if you deploy
+your own copy with [Claude connected](#connecting-claude), the assistant sends
+the prompts you type, with the open note, to Claude.
 
 No build step, no npm install, no framework. Plain HTML, CSS, and JavaScript.
 Clone it, serve the folder, and it runs.
@@ -71,8 +73,8 @@ icon, and works with no network connection.
 
 ### The assistant panel
 
-An optional panel with **local** commands — it runs entirely in your browser, no
-API key and no network request:
+An optional panel. These **local** commands run entirely in your browser, with
+no API key and no network request:
 
 | Command | Does |
 | --- | --- |
@@ -82,12 +84,14 @@ API key and no network request:
 | `stats` | Note, word, and character counts |
 | `title` | Suggests a title from the first line |
 | `find <term>` | Searches your notes |
+| `lock` | Forgets the Claude passphrase on this device |
 | `help` | Lists the commands |
 
-The client can also forward prompts to a model through an endpoint you control
-at `/api/agent`. Only a same-origin endpoint is permitted, and none ships yet:
-that route needs server-side code holding the API key, which GitHub Pages
-cannot run. Never put an API key in the browser code.
+On the public GitHub Pages site that is all it does. On a copy deployed to
+Cloudflare Pages with Claude connected, anything that is not a local command
+("what am I missing in this plan?") goes to Claude, together with the note you
+have open. The panel's hint line tells you which mode you are in. See
+[Connecting Claude](#connecting-claude).
 
 ---
 
@@ -106,8 +110,9 @@ worth knowing before you trust it with anything:
 - **Export is your only backup.** Use *Export* regularly and keep the JSON file
   somewhere safe. *Import* reads that file back, merging into what is already
   there.
-- Nothing is ever transmitted. The app has no analytics, no telemetry, and makes
-  no third-party request of any kind.
+- The app has no analytics, no telemetry, and the browser makes no third-party
+  request of any kind. With Claude connected, prompts reach Claude only through
+  your own site's server, and only when you send one to the assistant.
 
 ---
 
@@ -159,13 +164,16 @@ pro-notes-book/
 ├── scripts/
 │   ├── storage.js      # localStorage wrapper, import/export
 │   ├── search.js       # indexing, matching, highlighting
-│   ├── agents.js       # local assistant commands
+│   ├── agents.js       # assistant: local commands + /api/agent client
 │   └── app.js          # wiring, rendering, shortcuts
 ├── assets/
 │   ├── fonts/          # self-hosted Inter (variable) + its licence
 │   ├── icons/          # favicon and PWA icons
 │   └── vendor/         # marked and DOMPurify, self-hosted
-├── _worker.js          # Cloudflare Pages only; ignored by GitHub Pages
+├── tools/
+│   ├── assemble-site.sh      # the allowlist of published files → _site/
+│   └── deploy-cloudflare.sh  # Cloudflare Pages deploy, with _worker.js
+├── _worker.js          # Cloudflare Pages only: headers + /api/agent
 └── README.md
 ```
 
@@ -192,21 +200,106 @@ Two things to know if you adapt it:
 
 - **Use relative paths.** Root-absolute paths like `/styles/main.css` break under
   a `/<repo>/` prefix. The current asset references are already relative.
-- **Only allowlisted files are published.** The workflow copies `index.html`,
-  `manifest.json`, `sw.js`, `favicon.ico`, `LICENSE`, `assets/`, `scripts/` and
-  `styles/` into `_site/` and deploys that. Deploying through Actions bypasses
-  Jekyll, so nothing else filters `_` or `.` paths: a new top-level file you
-  want served must be added to the `cp` line in `.github/workflows/pages.yml`.
+- **Only allowlisted files are published.** `tools/assemble-site.sh` copies
+  `index.html`, `manifest.json`, `sw.js`, `favicon.ico`, `LICENSE`, `assets/`,
+  `scripts/` and `styles/` into `_site/`, and both deploys publish only that.
+  Deploying through Actions bypasses Jekyll, so nothing else filters `_` or `.`
+  paths: a new top-level file you want served must be added to that script.
   Even so, keep real secrets out of the repository entirely.
 - **Actions are pinned to commit SHAs.** Update the SHA and its `# vX.Y.Z`
   comment together.
 
 `_worker.js` only runs on **Cloudflare Pages**, where it sets real response
-headers. GitHub Pages has no server-side runtime, so it is inert there.
+headers and serves `/api/agent`. GitHub Pages has no server-side runtime and
+never receives the file.
+
+---
+
+## Connecting Claude
+
+The assistant can answer free-form questions about your note through Claude.
+That needs server-side code to hold the API key, because anything in the
+browser is public. `_worker.js` is that code, and it runs on **Cloudflare
+Pages** (free tier is fine). GitHub Pages cannot do this.
+
+**The API key never reaches the browser.** The panel sends your prompt and the
+open note to `/api/agent` on your own site. The Worker checks a passphrase and
+then calls the Claude API with the key, which is stored as a Cloudflare secret.
+
+### Set it up
+
+You need a Cloudflare account, an Anthropic API key from
+[console.anthropic.com](https://console.anthropic.com/), and Node.js for
+`npx wrangler`.
+
+```bash
+npx wrangler login
+npx wrangler pages project create pro-notes-book --production-branch main
+
+# Paste each value when prompted; it never touches the repository.
+npx wrangler pages secret put ANTHROPIC_API_KEY --project-name pro-notes-book
+npx wrangler pages secret put AGENT_PASSPHRASE  --project-name pro-notes-book
+
+tools/deploy-cloudflare.sh
+```
+
+Open the `*.pages.dev` URL wrangler prints, open the assistant, and ask
+something. It asks for the passphrase once per device.
+
+**Choose a strong passphrase.** It is the only thing between the internet and
+your API credit. Generate one with `openssl rand -base64 24`.
+
+### Optional settings
+
+Set these as plain variables in the Cloudflare dashboard (*Settings →
+Variables*):
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `AGENT_MODEL` | `claude-opus-5` | Claude model ID |
+| `AGENT_EFFORT` | `medium` | `low` … `max`: depth of reasoning vs. cost and speed |
+| `AGENT_MAX_TOKENS` | `8192` | Longest reply, capped at 32000 |
+
+The model is always chosen by the server; a client cannot request another one.
+A request the model declines is retried automatically on Anthropic's
+recommended fallback model.
+
+### Protect your spend
+
+- Set a **monthly spend limit** in the Anthropic Console. It is the hard
+  backstop whatever else happens.
+- Add a Cloudflare **rate limiting rule** for the path `/api/agent`
+  (*Security → WAF*), for example 20 requests per minute per IP.
+- For the strongest option, put the whole site behind **Cloudflare Access**, so
+  only your own login can reach it at all.
+
+### Develop locally
+
+Put the secrets in a `.dev.vars` file in the repository root (gitignored, never
+published):
+
+```
+ANTHROPIC_API_KEY=...
+AGENT_PASSPHRASE=...
+```
+
+Then run `tools/assemble-site.sh --with-worker && npx wrangler pages dev _site`.
+
+### What gets sent
+
+Only when you send a prompt that is not a local command: that prompt, plus the
+title and text of the note you have open. Nothing else: no other notes, no
+settings, no history of earlier questions. Each question stands alone.
 
 ---
 
 ## Security notes
+
+- **The Claude API key lives only in Cloudflare secrets.** The browser holds a
+  passphrase for your Worker, never the key, and Export never includes it. The
+  Worker compares the passphrase in constant time, accepts same-origin JSON
+  only, caps prompt and note size, fixes the model server-side, and never
+  forwards Anthropic's error bodies to the browser.
 
 - **Your notes are only as private as the web origin they live on.**
   `localStorage` is shared by every page on the same origin, and on GitHub

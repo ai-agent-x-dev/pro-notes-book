@@ -11,3 +11,8 @@ node_modules/
 # Local env / secrets — never commit these
 .env
 .env.*
+
+# Build output and local Cloudflare secrets
+_site/
+.dev.vars
+.wrangler/

@@ -22,8 +22,10 @@
  * must be retired. The font must be precached or the first offline load would
  * render with a fallback and then reflow when the real font arrived.
  * v4: bug-fix release of all four scripts (cross-tab sync, notebook
- * fallback, agent command order, capped agent response). */
-const VERSION = 'v4';
+ * fallback, agent command order, capped agent response).
+ * v5: the agent panel gained the Claude connection (passphrase row in
+ * index.html, its CSS, and the /api/agent client in agents.js). */
+const VERSION = 'v5';
 const CACHE = `pro-notes-${VERSION}`;
 
 /* Paths are relative to the worker's own location, not the page. Using

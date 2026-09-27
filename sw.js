@@ -8,11 +8,11 @@
  * Strategy, per request type:
  *   - navigations  network-first, falling back to the cached shell. A fresh
  *                   copy when online, still-usable app when offline.
- *   - precached    cache-first. These are version-pinned, so a byte-identical
- *                   hit is correct and avoids a network round trip.
- *   - everything   cache-first with a background refresh (stale-while-
- *                   revalidate), so nothing unversioned is served stale
- *                   forever.
+ *   - precached    cache-first, with a background refresh (stale-while-
+ *                   revalidate), so an edited file is picked up on the next
+ *                   load even before VERSION is bumped.
+ *   - everything   straight to the network and never stored. See the fetch
+ *     else          handler for why a catch-all cache is a liability.
  *
  * CACHE is versioned. Bump it whenever a precached file changes; install then
  * drops every old cache in activate, which is what retires stale assets.
@@ -20,8 +20,10 @@
 /* v3: the shell gained a CSP, the vendored Markdown libraries, the
  * ?action=new shortcut handling, and a self-hosted Inter, so the v2 precache
  * must be retired. The font must be precached or the first offline load would
- * render with a fallback and then reflow when the real font arrived. */
-const VERSION = 'v3';
+ * render with a fallback and then reflow when the real font arrived.
+ * v4: bug-fix release of all four scripts (cross-tab sync, notebook
+ * fallback, agent command order, capped agent response). */
+const VERSION = 'v4';
 const CACHE = `pro-notes-${VERSION}`;
 
 /* Paths are relative to the worker's own location, not the page. Using

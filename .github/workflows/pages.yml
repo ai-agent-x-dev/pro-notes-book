@@ -10,6 +10,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Actions are pinned to full commit SHAs, not tags: a tag can be moved to
+# different code, a SHA cannot. The comment names the release; bump both
+# together (Dependabot's github-actions ecosystem does this automatically).
+#
 # Least privilege: read the repo, write only to Pages, and sign the OIDC token
 # that deploy-pages exchanges for a deployment.
 permissions:
@@ -30,19 +34,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Configure Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
 
       # No build step on purpose. There is no _config.yml, no Gemfile and no
       # Liquid template, so Jekyll would only add a failure mode. The static
       # files are the output.
+      #
+      # But publish an ALLOWLIST, not the repository root. Deploying via
+      # Actions bypasses Jekyll, so nothing filters `_` or `.` paths any more:
+      # uploading '.' served _worker.js, .gitignore and anything else that
+      # was ever committed. A new top-level file stays private until it is
+      # added here. `cp` fails the job if a listed file is missing.
+      - name: Assemble the published files
+        run: |
+          mkdir _site
+          cp -r index.html manifest.json sw.js favicon.ico LICENSE \
+                assets scripts styles _site/
+
       - name: Upload the site
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
-          path: '.'
+          path: _site
 
       - name: Deploy
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5

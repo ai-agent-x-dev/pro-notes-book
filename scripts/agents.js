@@ -5,11 +5,12 @@
  * There is no API key in this file and there must never be one. Anything in
  * the browser is readable by anyone who loads the page, so a key here is a
  * published key. The remote path below therefore POSTs to a same-origin
- * endpoint and expects the Worker (_worker.js) to hold the credential and
- * call the model server-side. A key committed here would be scraped within
- * minutes of the first push to GitHub.
+ * endpoint and expects server-side code there to hold the credential and
+ * call the model. _worker.js does NOT implement that route yet, and GitHub
+ * Pages cannot run server code at all. A key committed here would be scraped
+ * within minutes of the first push to GitHub.
  *
- * Until that Worker is deployed, every command below is local and offline:
+ * Until such an endpoint exists, every command below is local and offline:
  * tokenising, summarising, and pattern-matching only. That is enough for the
  * panel to be useful and testable with no network and no cost.
  */
@@ -131,7 +132,8 @@
 
         return this.help(ctx) +
             '\n\n(No model endpoint configured — this agent is running fully ' +
-            'offline. Set agentEndpoint in app.js after deploying _worker.js.)';
+            'offline. Set agentEndpoint in DEFAULT_CONFIG in scripts/agents.js ' +
+            'once a server-side /api/agent route exists.)';
     };
 
     /**
@@ -147,6 +149,15 @@
 
         if (/^(help|\?|commands)\b/.test(cmd)) {
             return this.help(ctx);
+        }
+
+        // Before the note commands: their patterns match anywhere in the
+        // text, so "find summary" or "search stats" was answered as a summary
+        // or stats request instead of searching for the word.
+        if (/^(find|search)\b/.test(cmd)) {
+            var query = prompt.replace(/^\s*(find|search)\s*/i, '').trim();
+            if (!query) return 'Try: find kubernetes';
+            return this.find(query, ctx.notes);
         }
 
         if (/summar(y|ise|ize)/.test(cmd)) {
@@ -178,23 +189,9 @@
             return t ? 'Suggested title\n\n' + t : 'Add some body text first.';
         }
 
-        if (/^(find|search)\b/.test(cmd)) {
-            var query = prompt.replace(/^\s*(find|search)\s*/i, '').trim();
-            if (!query) return 'Try: find kubernetes';
-            return this.find(query, ctx.notes);
-        }
-
         return null;
     };
 
-    /**
-     * POST to the Worker. The Worker is expected to hold the model key and
-     * return { reply: string }. No credentials are attached here by design.
-     *
-     * Hardened because the response is untrusted: it is capped, its
-     * content-type is checked, and the reply is string-validated before it
-     * reaches the DOM.
-     */
     /** True only for a URL on this app's own origin. */
     AgentManager.prototype.isSameOrigin = function (endpoint) {
         try {
@@ -204,6 +201,57 @@
         }
     };
 
+    var MAX_RESPONSE_BYTES = 1e6;
+
+    /**
+     * Read a response body as text, aborting once it passes maxBytes.
+     *
+     * res.text() buffers the whole body before its length can be checked, so
+     * a cap applied afterwards protects nothing. Counting bytes as they
+     * stream in stops a runaway endpoint at the cap.
+     */
+    AgentManager.prototype.readCapped = function (res, maxBytes, controller) {
+        var declared = Number(res.headers.get('content-length'));
+        if (declared > maxBytes) {
+            controller.abort();
+            return Promise.reject(new Error('Response too large'));
+        }
+        if (!res.body || !res.body.getReader) {
+            // No streaming support: fall back to a buffered read.
+            return res.text().then(function (text) {
+                if (text.length > maxBytes) throw new Error('Response too large');
+                return text;
+            });
+        }
+
+        var reader = res.body.getReader();
+        var decoder = new TextDecoder();
+        var received = 0;
+        var text = '';
+        function pump() {
+            return reader.read().then(function (chunk) {
+                if (chunk.done) return text + decoder.decode();
+                received += chunk.value.byteLength;
+                if (received > maxBytes) {
+                    controller.abort();
+                    throw new Error('Response too large');
+                }
+                text += decoder.decode(chunk.value, { stream: true });
+                return pump();
+            });
+        }
+        return pump();
+    };
+
+    /**
+     * POST to the same-origin endpoint, which is expected to hold the model
+     * key and return { reply: string }. No credentials are attached here by
+     * design.
+     *
+     * Hardened because the response is untrusted: its size is capped while
+     * it streams, its content-type is checked, and the reply is
+     * string-validated before it reaches the DOM.
+     */
     AgentManager.prototype.callRemote = function (prompt, ctx) {
         var self = this;
         var controller = new AbortController();
@@ -229,12 +277,8 @@
                 if (type.indexOf('json') === -1) {
                     throw new Error('Expected JSON, got ' + (type || 'no content-type'));
                 }
-                // Cap before parsing: a hostile/erroneous endpoint cannot
-                // stream an unbounded body into memory.
-                return res.text().then(function (text) {
-                    if (text.length > 1e6) throw new Error('Response too large');
-                    return JSON.parse(text);
-                });
+                return self.readCapped(res, MAX_RESPONSE_BYTES, controller)
+                    .then(function (text) { return JSON.parse(text); });
             })
             .then(function (data) {
                 if (!data || typeof data.reply !== 'string') {

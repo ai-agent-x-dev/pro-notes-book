@@ -34,6 +34,9 @@
     let agents = null;
     let autoSaveTimer = null;
 
+    /** Autosave fires this long after the last keystroke. */
+    const AUTOSAVE_DEFAULT_MS = 2000;
+
     /* ------------------------------------------------------------------ boot */
 
     function init() {
@@ -48,10 +51,21 @@
         applyFontSize();
         render();
 
-        // Re-render on external change (import, or another tab).
+        // Re-render on a change made in this tab (save, import, delete).
         window.addEventListener('notes-updated', () => {
             if (!state.dirty) syncEditor();
             render();
+        });
+
+        // Another tab wrote to the store. The browser fires 'storage' only in
+        // the OTHER tabs, never the writer, so this cannot loop. Re-emitting
+        // notes-updated reuses the path above and rebuilds the search index.
+        window.addEventListener('storage', onExternalChange);
+
+        // Mobile browsers routinely kill a backgrounded tab without firing
+        // beforeunload, so flush when the page is hidden, not only on unload.
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden' && state.dirty) saveNote(true);
         });
 
         window.addEventListener('beforeunload', (e) => {
@@ -210,7 +224,7 @@
         clearTimeout(autoSaveTimer);
         autoSaveTimer = setTimeout(() => {
             if (state.dirty) saveNote(true);
-        }, Number(settings.autoSaveInterval) || 30000);
+        }, Number(settings.autoSaveInterval) || AUTOSAVE_DEFAULT_MS);
 
         if (state.preview) renderPreview();
     }
@@ -222,7 +236,7 @@
 
         // id stays null: nothing is written until the first save, so abandoned
         // drafts don't pile up as blank records.
-        state.note = { id: null, title: '', content: '', tags: [], notebook: state.notebook || 'default' };
+        state.note = { id: null, title: '', content: '', tags: [], notebook: homeNotebook() };
         state.dirty = false;
 
         $('note-title').value = '';
@@ -230,6 +244,18 @@
         renderPreview();
         render();
         $('note-title').focus();
+    }
+
+    /**
+     * Where a new note lives: the selected notebook, else the fallback one.
+     * Not a hardcoded 'default' — that notebook can be deleted, or be absent
+     * after a "replace all" import, and a note pointing at it would only ever
+     * show up under All Notes.
+     */
+    function homeNotebook() {
+        const selected = state.notebook &&
+            storage.getNotebooks().some((b) => b.id === state.notebook);
+        return selected ? state.notebook : storage.fallbackNotebookId();
     }
 
     function openNote(id) {
@@ -250,13 +276,40 @@
             notebook: note.notebook || 'default'
         };
         state.dirty = false;
-        state.notebook = state.note.notebook;
+        // Follow the note only when a DIFFERENT notebook is selected (e.g. it
+        // was opened from search), so it is visible in the list. Assigning
+        // unconditionally made "All Notes" unusable: selecting it opens the
+        // first note, which immediately switched the filter back to that
+        // note's notebook, and it narrowed tag filters the same way.
+        if (state.notebook && state.notebook !== state.note.notebook) {
+            state.notebook = state.note.notebook;
+        }
 
         $('note-title').value = state.note.title;
         $('note-content').value = state.note.content;
         storage.setActiveNote(id);
         renderPreview();
         render();
+    }
+
+    /** A 'storage' event: another tab changed notes or notebooks. */
+    function onExternalChange(e) {
+        // key is null when another tab called localStorage.clear().
+        if (e.key !== null && e.key !== storage.notesKey && e.key !== storage.notebooksKey) return;
+
+        // Unsaved edits here would silently overwrite the other tab's version
+        // of the same note on the next save. Keep the edits, but say so.
+        if (state.dirty && state.note && state.note.id && e.key !== storage.notebooksKey) {
+            const theirs = storage.getNote(state.note.id);
+            if (theirs && theirs.content !== state.note.content) {
+                ui('This note was changed in another tab — saving here will overwrite it.', 'warn');
+            }
+        }
+
+        if (state.notebook && !storage.getNotebooks().some((b) => b.id === state.notebook)) {
+            state.notebook = null; // the selected notebook was deleted elsewhere
+        }
+        window.dispatchEvent(new CustomEvent('notes-updated', { detail: { storage } }));
     }
 
     function syncEditor() {
@@ -405,7 +458,7 @@
             title: '',
             content: '',
             tags: [],
-            notebook: state.notebook || 'default',
+            notebook: homeNotebook(),
             createdAt: now,
             updatedAt: now
         };
@@ -491,7 +544,10 @@
             row.appendChild(del);
         }
 
-        row.onclick = () => filterNotebook(book.id || null);
+        // Clicks are handled by the delegated listener on #notebook-list. A
+        // row.onclick here as well fired filterNotebook twice, and ran before
+        // the delete button's handler, so pressing × switched notebooks even
+        // when the user then cancelled the confirm.
         row.onkeydown = (e) => {
             if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); row.click(); }
         };
@@ -586,9 +642,10 @@
     }
 
     /**
-     * marked -> DOMPurify. Both come from a CDN, so either can be absent when
-     * the app runs offline. The fallback is escaped plain text, never
-     * un-sanitised HTML.
+     * marked -> DOMPurify. Both are vendored and precached, but either can
+     * still be absent (an SRI mismatch blocks it, or the service worker could
+     * not cache it). The fallback is escaped plain text, never un-sanitised
+     * HTML.
      */
     function renderMarkdown(src) {
         const text = String(src || '');
@@ -729,9 +786,9 @@
                 return ui('Not valid JSON: ' + err.message, 'err');
             }
 
-            // Commit any pending edit BEFORE the confirm. Autosave is 30s by
-            // default, so an import could otherwise wipe a half-written note
-            // with no prompt and no undo.
+            // Commit any pending edit BEFORE the confirm. Autosave is
+            // debounced, so an import could otherwise wipe a half-written
+            // note with no prompt and no undo.
             if (state.dirty) saveNote(true);
 
             const merge = confirm('Merge with existing notes?\n\nOK = merge, Cancel = replace all.');
@@ -749,6 +806,10 @@
 
             state.note = null;
             state.dirty = false;
+            // "Replace all" can remove the selected notebook.
+            if (state.notebook && !storage.getNotebooks().some((b) => b.id === state.notebook)) {
+                state.notebook = null;
+            }
             $('note-title').value = '';
             $('note-content').value = '';
 
@@ -819,8 +880,9 @@
     /* ------------------------------------------------------------------ boot */
 
     window.NB = window.NB || {};
-    // Merge, don't replace: search.js has already put SearchManager and
-    // escapeHtml on NB, and assigning a fresh object here would drop them.
+    // Merge, don't replace: search.js and agents.js have already put
+    // SearchManager and AgentManager on NB, and assigning a fresh object here
+    // would drop them.
     Object.assign(window.NB, {
         ui,
         app: {

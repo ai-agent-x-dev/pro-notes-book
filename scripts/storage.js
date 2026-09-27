@@ -35,12 +35,19 @@ class StorageManager {
                 theme: 'dark',
                 fontSize: 'medium',
                 autoSave: true,
-                autoSaveInterval: 30000
+                autoSaveInterval: 2000
             }
         };
         Object.keys(seed).forEach(key => {
             if (!localStorage.getItem(key)) this.write(key, seed[key]);
         });
+
+        // Earlier versions seeded a 30 s autosave, which lost up to half a
+        // minute of typing when a tab was killed. Nothing in the UI sets this
+        // value, so exactly 30000 can only be the old seed: move it forward.
+        if (this.getSettings().autoSaveInterval === 30000) {
+            this.set({ autoSaveInterval: 2000 });
+        }
     }
 
     /* ------------------------------------------------------------- primitives */
@@ -135,7 +142,7 @@ class StorageManager {
         } else {
             record = {
                 tags: [],
-                notebook: 'default',
+                notebook: this.fallbackNotebookId(),
                 ...note,
                 id: note.id || this.generateId(),
                 createdAt: now,
@@ -158,17 +165,36 @@ class StorageManager {
         return Array.isArray(books) ? books : [];
     }
 
+    /** @returns {object|null} the stored record (with its id), or null if the write failed */
     saveNotebook(notebook) {
         if (!notebook || typeof notebook !== 'object') return null;
         const books = this.getNotebooks();
         const index = books.findIndex(b => b.id === notebook.id);
 
-        if (index >= 0) books[index] = { ...books[index], ...notebook };
-        else books.push({ ...DEFAULT_NOTEBOOK, ...notebook, id: notebook.id || this.generateId() });
+        let record;
+        if (index >= 0) {
+            record = { ...books[index], ...notebook };
+            books[index] = record;
+        } else {
+            record = { ...DEFAULT_NOTEBOOK, ...notebook, id: notebook.id || this.generateId() };
+            books.push(record);
+        }
 
         if (!this.write(this.notebooksKey, books)) return null;
         this.event('notebooks-updated');
-        return notebook;
+        return record;
+    }
+
+    /**
+     * The notebook a note goes to when nothing more specific applies:
+     * 'default' while it exists, else the first notebook. 'default' is not
+     * guaranteed — the user can delete it, and a "replace all" import may not
+     * contain it.
+     */
+    fallbackNotebookId() {
+        const books = this.getNotebooks();
+        if (books.some(b => b.id === DEFAULT_NOTEBOOK.id)) return DEFAULT_NOTEBOOK.id;
+        return books.length ? books[0].id : DEFAULT_NOTEBOOK.id;
     }
 
     /**
@@ -197,8 +223,10 @@ class StorageManager {
             return { ...n, notebook: target };
         });
 
-        this.setNotes(rehomed);
-        this.write(this.notebooksKey, remaining);
+        // Notes first, and stop if that fails: removing the notebook while its
+        // notes still point at it would orphan them.
+        if (!this.setNotes(rehomed)) return false;
+        if (!this.write(this.notebooksKey, remaining)) return false;
         this.event('notebooks-updated');
         return { movedCount, movedTo: target };
     }
@@ -309,19 +337,23 @@ class StorageManager {
                 updatedAt: n.updatedAt || now
             }));
 
+        // Re-key on collision, or two records share an id: a merge would
+        // silently overwrite, and a file with duplicate ids would leave notes
+        // that open, save and delete as one. Applies to both modes.
         const existing = this.getNotes();
-        const seen = new Set(existing.map(n => n.id));
-        const finalNotes = opts.merge
-            ? existing.concat(incoming.map(n => {
-                // Re-key on collision, or the merge silently overwrites.
-                if (!seen.has(n.id)) { seen.add(n.id); return n; }
-                return { ...n, id: id() };
-            }))
-            : incoming;
+        const seen = new Set(opts.merge ? existing.map(n => n.id) : []);
+        const rekeyed = incoming.map(n => {
+            if (!seen.has(n.id)) { seen.add(n.id); return n; }
+            return { ...n, id: id() };
+        });
+        const finalNotes = opts.merge ? existing.concat(rekeyed) : rekeyed;
 
         const books = this.getNotebooks();
+        const seenBooks = new Set();
         const incomingBooks = (Array.isArray(data.notebooks) ? data.notebooks : [])
             .filter(b => b && typeof b.id === 'string' && b.id)
+            // A duplicate notebook id keeps the first entry only.
+            .filter(b => !seenBooks.has(b.id) && seenBooks.add(b.id))
             .map(b => ({
                 id: b.id,
                 name: String(b.name == null || b.name === '' ? 'Notebook' : b.name).slice(0, 120),

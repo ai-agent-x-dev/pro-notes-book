@@ -42,8 +42,9 @@ to install at all.
 
 1. **Write.** Pick a notebook (or *All notes*) and type. The preview pane shows
    rendered Markdown; `Ctrl+P` toggles it.
-2. **Save.** Saving is automatic a moment after you stop typing. `Ctrl+S` forces
-   it. An unsaved-changes warning fires if you close the tab with pending edits.
+2. **Save.** Saving is automatic two seconds after you stop typing, and again
+   whenever the tab is hidden or closed. `Ctrl+S` forces it. If a save fails
+   (for example, storage is full) closing the tab warns you.
 3. **Find things.** `Ctrl+K` focuses search. It looks through titles, tags, and
    note bodies, and ranks exact phrase matches first.
 4. **Organise.** Notebooks group notes; tags are comma-separated per note and
@@ -83,8 +84,10 @@ API key and no network request:
 | `find <term>` | Searches your notes |
 | `help` | Lists the commands |
 
-It can optionally proxy to an endpoint you control at `/api/agent`, but only a
-same-origin one is permitted.
+The client can also forward prompts to a model through an endpoint you control
+at `/api/agent`. Only a same-origin endpoint is permitted, and none ships yet:
+that route needs server-side code holding the API key, which GitHub Pages
+cannot run. Never put an API key in the browser code.
 
 ---
 
@@ -95,7 +98,9 @@ worth knowing before you trust it with anything:
 
 - Notes are **per browser, per device**. Your phone and your laptop have
   separate, unsynchronised sets. The live site and a local clone also do not
-  share notes.
+  share notes. Tabs of the same browser *do* share them and update each other
+  live; editing the same note in two tabs at once warns you, and the last save
+  wins.
 - Clearing site data, using a private window, or switching browser profile
   **deletes or hides your notes.** There is no server-side copy.
 - **Export is your only backup.** Use *Export* regularly and keep the JSON file
@@ -187,11 +192,14 @@ Two things to know if you adapt it:
 
 - **Use relative paths.** Root-absolute paths like `/styles/main.css` break under
   a `/<repo>/` prefix. The current asset references are already relative.
-- **GitHub Pages runs Jekyll by default**, which silently skips any path
-  beginning with `_` or `.`. That is intentional here: it keeps `_worker.js` and
-  `.gitignore` out of the public web root. If you switch to Actions or add
-  `.nojekyll`, everything in the repository gets published, dotfiles included —
-  so keep real secrets off the published branch entirely.
+- **Only allowlisted files are published.** The workflow copies `index.html`,
+  `manifest.json`, `sw.js`, `favicon.ico`, `LICENSE`, `assets/`, `scripts/` and
+  `styles/` into `_site/` and deploys that. Deploying through Actions bypasses
+  Jekyll, so nothing else filters `_` or `.` paths: a new top-level file you
+  want served must be added to the `cp` line in `.github/workflows/pages.yml`.
+  Even so, keep real secrets out of the repository entirely.
+- **Actions are pinned to commit SHAs.** Update the SHA and its `# vX.Y.Z`
+  comment together.
 
 `_worker.js` only runs on **Cloudflare Pages**, where it sets real response
 headers. GitHub Pages has no server-side runtime, so it is inert there.
@@ -199,6 +207,13 @@ headers. GitHub Pages has no server-side runtime, so it is inert there.
 ---
 
 ## Security notes
+
+- **Your notes are only as private as the web origin they live on.**
+  `localStorage` is shared by every page on the same origin, and on GitHub
+  Pages the origin is the whole account (`<user>.github.io`), not the
+  `/pro-notes-book/` folder. Any other project published under the same
+  account can read and overwrite these notes. For anything sensitive, serve the
+  app from its own origin: a custom domain, or a local clone.
 
 - All user-supplied text is rendered with `textContent`, and Markdown preview
   HTML is sanitised by DOMPurify. Links get `rel="noopener noreferrer"`.

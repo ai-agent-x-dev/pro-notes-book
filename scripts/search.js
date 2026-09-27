@@ -158,9 +158,7 @@ class SearchManager {
                 const note = this.notesById[id];
                 const title = String(note.title || '').toLowerCase();
                 const tags = (Array.isArray(note.tags) ? note.tags : []).join(' ').toLowerCase();
-                const match = partial.find(w =>
-                    title.includes(w) || title.startsWith(w) || tags.includes(w)
-                );
+                const match = partial.find(w => title.includes(w) || tags.includes(w));
                 if (!match) return;
                 seen.add(id);
                 results.push({
@@ -367,7 +365,5 @@ window.NB.SearchManager = SearchManager;
 // NB.escapeHtml is intentionally NOT defined here. search.js no longer needs
 // an escaper (highlight() builds nodes), and defining a second one that app.js
 // then silently overwrote invited the two to drift apart.
-
-// Initialized by app.js, after the DOM is ready and storage exists.
-// Kept here so app.js owns the lifecycle.
-let searchManager = null;
+//
+// Instantiated by app.js, after the DOM is ready and storage exists.

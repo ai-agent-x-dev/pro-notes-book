@@ -7,7 +7,7 @@
  * published key, scraped within minutes of the first push to GitHub.
  *
  * Instead, prompts the local commands do not handle are POSTed to the
- * same-origin /api/agent route in _worker.js, which holds the Claude API key
+ * same-origin /api/agent route in worker.js, which holds the Claude API key
  * as a Cloudflare secret and calls the model server-side. The browser proves
  * it may use that route with a passphrase, not with the key.
  *
@@ -21,7 +21,7 @@
 
     var DEFAULT_CONFIG = {
         // Relative, so it resolves against the page: /api/agent on Cloudflare
-        // Pages (served by _worker.js), and a 404 under GitHub Pages, where the
+        // (served by worker.js), and a 404 under GitHub Pages, where the
         // probe in init() then keeps the panel fully offline. Set to null to
         // never contact a server at all.
         agentEndpoint: 'api/agent',
@@ -235,7 +235,7 @@
 
         return this.help(ctx) +
             '\n\n(No model is available on this host, so the assistant runs ' +
-            'fully offline. Deploy to Cloudflare Pages with _worker.js to ' +
+            'fully offline. Deploy to Cloudflare Workers with worker.js to ' +
             'connect Claude.)';
     };
 

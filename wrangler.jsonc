@@ -1,0 +1,32 @@
+// Cloudflare Workers configuration (used by tools/deploy-cloudflare.sh and
+// `npx wrangler dev`). GitHub Pages ignores this file and never serves it.
+{
+  "name": "pro-notes-book",
+  "main": "worker.js",
+  "compatibility_date": "2026-11-15",
+
+  // The static site. tools/assemble-site.sh builds _site/ from the allowlist;
+  // worker.js lives outside it, so it is never uploaded as a public file.
+  "assets": {
+    "directory": "./_site",
+    "binding": "ASSETS",
+    // Every request goes through worker.js, which adds the security headers
+    // and serves /api/agent. Without this, static files would be served
+    // directly and carry no headers.
+    "run_worker_first": true
+  },
+
+  // Serve on <name>.<your-subdomain>.workers.dev. No per-version preview
+  // URLs: each would be one more public address in front of /api/agent.
+  "workers_dev": true,
+  "preview_urls": false
+
+  // Optional settings. Uncomment and edit; they deploy with the code.
+  // Secrets (ANTHROPIC_API_KEY, AGENT_PASSPHRASE) never go here: set them
+  // with `npx wrangler secret put <NAME>`.
+  // , "vars": {
+  //   "AGENT_MODEL": "claude-opus-5-5",
+  //   "AGENT_EFFORT": "medium",
+  //   "AGENT_MAX_TOKENS": "8192"
+  // }
+}

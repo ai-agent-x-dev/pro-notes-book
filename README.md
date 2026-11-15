@@ -88,7 +88,7 @@ no API key and no network request:
 | `help` | Lists the commands |
 
 On the public GitHub Pages site that is all it does. On a copy deployed to
-Cloudflare Pages with Claude connected, anything that is not a local command
+Cloudflare with Claude connected, anything that is not a local command
 ("what am I missing in this plan?") goes to Claude, together with the note you
 have open. The panel's hint line tells you which mode you are in. See
 [Connecting Claude](#connecting-claude).
@@ -172,8 +172,9 @@ pro-notes-book/
 │   └── vendor/         # marked and DOMPurify, self-hosted
 ├── tools/
 │   ├── assemble-site.sh      # the allowlist of published files → _site/
-│   └── deploy-cloudflare.sh  # Cloudflare Pages deploy, with _worker.js
-├── _worker.js          # Cloudflare Pages only: headers + /api/agent
+│   └── deploy-cloudflare.sh  # Cloudflare Workers deploy
+├── worker.js           # Cloudflare only: headers + /api/agent
+├── wrangler.jsonc      # Cloudflare only: Worker settings
 └── README.md
 ```
 
@@ -209,7 +210,7 @@ Two things to know if you adapt it:
 - **Actions are pinned to commit SHAs.** Update the SHA and its `# vX.Y.Z`
   comment together.
 
-`_worker.js` only runs on **Cloudflare Pages**, where it sets real response
+`worker.js` only runs on **Cloudflare Workers**, where it sets real response
 headers and serves `/api/agent`. GitHub Pages has no server-side runtime and
 never receives the file.
 
@@ -219,8 +220,8 @@ never receives the file.
 
 The assistant can answer free-form questions about your note through Claude.
 That needs server-side code to hold the API key, because anything in the
-browser is public. `_worker.js` is that code, and it runs on **Cloudflare
-Pages** (free tier is fine). GitHub Pages cannot do this.
+browser is public. `worker.js` is that code, and it runs on **Cloudflare
+Workers** (free tier is fine). GitHub Pages cannot do this.
 
 **The API key never reaches the browser.** The panel sends your prompt and the
 open note to `/api/agent` on your own site. The Worker checks a passphrase and
@@ -234,25 +235,33 @@ You need a Cloudflare account, an Anthropic API key from
 
 ```bash
 npx wrangler login
-npx wrangler pages project create pro-notes-book --production-branch main
+tools/deploy-cloudflare.sh
 
 # Paste each value when prompted; it never touches the repository.
-npx wrangler pages secret put ANTHROPIC_API_KEY --project-name pro-notes-book
-npx wrangler pages secret put AGENT_PASSPHRASE  --project-name pro-notes-book
-
-tools/deploy-cloudflare.sh
+npx wrangler secret put ANTHROPIC_API_KEY
+npx wrangler secret put AGENT_PASSPHRASE
 ```
 
-Open the `*.pages.dev` URL wrangler prints, open the assistant, and ask
+The deploy comes first because it creates the Worker the secrets attach to.
+Until both secrets are set, the assistant endpoint refuses every request, so
+nothing is exposed in between.
+
+Open the `*.workers.dev` URL wrangler prints, open the assistant, and ask
 something. It asks for the passphrase once per device.
+
+The Worker's name and settings are in `wrangler.jsonc`. Every request passes
+through the Worker so it can add the security headers; the Workers free plan
+has a daily request allowance, which is far more than a personal notes site
+uses.
 
 **Choose a strong passphrase.** It is the only thing between the internet and
 your API credit. Generate one with `openssl rand -base64 24`.
 
 ### Optional settings
 
-Set these as plain variables in the Cloudflare dashboard (*Settings →
-Variables*):
+Set these under `"vars"` in `wrangler.jsonc` (there is a commented example)
+and deploy again. Variables set only in the Cloudflare dashboard are replaced
+by the next deploy:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -283,7 +292,8 @@ ANTHROPIC_API_KEY=...
 AGENT_PASSPHRASE=...
 ```
 
-Then run `tools/assemble-site.sh --with-worker && npx wrangler pages dev _site`.
+Then run `tools/assemble-site.sh && npx wrangler dev` and open the address it
+prints.
 
 ### What gets sent
 

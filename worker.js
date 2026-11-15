@@ -1,10 +1,12 @@
 /**
- * _worker.js — Cloudflare Pages Worker
+ * worker.js — Cloudflare Worker
  *
  * ⚠️  NOT USED BY GITHUB PAGES.
  * GitHub Pages has no server-side runtime and never receives this file (the
- * workflow publishes an allowlist that excludes it). Cloudflare Pages runs it
- * in "advanced mode": every request to the site passes through fetch() below.
+ * workflow publishes an allowlist that excludes it). On Cloudflare it is the
+ * Worker's script (`main` in wrangler.jsonc) in front of the static site:
+ * `run_worker_first` is set, so every request passes through fetch() below,
+ * and static files are read through the ASSETS binding.
  *
  * Two jobs:
  *
@@ -16,24 +18,24 @@
  *      and this code calls the Claude API with the key held as a Cloudflare
  *      secret.
  *
- * Secrets (set with `npx wrangler pages secret put <NAME>`; never commit them):
+ * Secrets (set with `npx wrangler secret put <NAME>`; never commit them):
  *   ANTHROPIC_API_KEY   the Claude API key.
  *   AGENT_PASSPHRASE    shared passphrase the panel must present. Required:
  *                       without it the endpoint refuses every request, since
  *                       an open endpoint lets anyone spend your API credit.
  *
- * Optional plain variables:
+ * Optional plain variables ("vars" in wrangler.jsonc):
  *   AGENT_MODEL         default claude-opus-5-5
  *   AGENT_EFFORT        low | medium | high | xhigh | max (default medium)
  *   AGENT_MAX_TOKENS    reply ceiling in tokens (default 8192)
  *
  * Local development: put the secrets in a .dev.vars file (gitignored), run
- * tools/assemble-site.sh --with-worker, then `npx wrangler pages dev _site`.
+ * tools/assemble-site.sh, then `npx wrangler dev`.
  */
 
 // Keep this CSP in sync with the <meta http-equiv> one in index.html. It is
 // duplicated deliberately: the meta tag covers GitHub Pages, this header
-// covers Cloudflare Pages, and a browser enforces the intersection.
+// covers Cloudflare, and a browser enforces the intersection.
 //
 // Every source is 'self' because the app loads nothing from any other origin.
 // The call to the Claude API happens here, server-side, so connect-src stays
@@ -225,7 +227,7 @@ async function handleAgent(request, env) {
   }
 
   if (!upstream.ok) {
-    // Log the detail for `wrangler pages deployment tail`; never forward the
+    // Log the detail for `npx wrangler tail`; never forward the
     // upstream body to the browser.
     const detail = await upstream.text().catch(() => "");
     console.error("agent: upstream", upstream.status, detail.slice(0, 500));

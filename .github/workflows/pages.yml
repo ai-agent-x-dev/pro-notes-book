@@ -45,10 +45,10 @@ jobs:
       #
       # But publish an ALLOWLIST, not the repository root. Deploying via
       # Actions bypasses Jekyll, so nothing filters `_` or `.` paths any more:
-      # uploading '.' served _worker.js, .gitignore and anything else that
+      # uploading '.' served worker.js, .gitignore and anything else that
       # was ever committed. The list lives in tools/assemble-site.sh, shared
       # with the Cloudflare deploy; it fails the job if a listed file is
-      # missing. No --with-worker: GitHub Pages must not serve _worker.js.
+      # missing.
       - name: Assemble the published files
         run: sh tools/assemble-site.sh
 

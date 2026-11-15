@@ -31,7 +31,7 @@
       frame-ancestors is deliberately NOT here: it is ignored in a meta tag and
       only logs a console warning. Clickjacking protection has to come from a
       real header, which only the Worker can send -- see SECURITY_HEADERS in
-      _worker.js. On GitHub Pages there is no way to set it.
+      worker.js. On GitHub Pages there is no way to set it.
     -->
     <meta http-equiv="Content-Security-Policy" content="
         default-src 'self';

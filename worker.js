@@ -63,7 +63,7 @@ const SECURITY_HEADERS = {
   "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
   "Cross-Origin-Opener-Policy": "same-origin",
   "Cross-Origin-Resource-Policy": "same-origin",
-  // Only meaningful over HTTPS, which Cloudflare always serves.
+  // Only honoured over HTTPS; plain HTTP is turned away in fetch() below.
   "Strict-Transport-Security": "max-age=31536000; includeSubDomains"
 };
 
@@ -284,9 +284,25 @@ function withSecurityHeaders(response) {
   });
 }
 
+// Local development (`wrangler dev`) runs over plain HTTP on these hosts.
+const LOCAL_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
+
 export default {
   async fetch(request, env, ctx) {
-    const { pathname } = new URL(request.url);
+    const url = new URL(request.url);
+    const { pathname } = url;
+
+    // workers.dev addresses also answer on plain http://, where the
+    // passphrase and the note would travel unencrypted and the service
+    // worker cannot run. Page loads are sent to HTTPS; anything else is
+    // refused, because redirecting a POST would not un-send its body.
+    if (url.protocol === "http:" && !LOCAL_HOSTS.includes(url.hostname)) {
+      if (request.method === "GET" || request.method === "HEAD") {
+        url.protocol = "https:";
+        return withSecurityHeaders(Response.redirect(url.href, 308));
+      }
+      return withSecurityHeaders(json(400, { error: "HTTPS is required." }));
+    }
 
     let response;
     if (pathname === AGENT_PATH) {

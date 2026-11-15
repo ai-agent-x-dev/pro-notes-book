@@ -26,7 +26,8 @@
  * v5: the agent panel gained the Claude connection (passphrase row in
  * index.html, its CSS, and the /api/agent client in agents.js).
  * v6: DOMPurify updated to 3.4.18 and marked to 18.2.0 (and their integrity
- * hashes in index.html). */
+ * hashes in index.html); agents.js wording; and the cached shell now works
+ * offline on hosts that redirect ./index.html to ./. */
 const VERSION = 'v6';
 const CACHE = `pro-notes-${VERSION}`;
 
@@ -54,6 +55,20 @@ const SHELL = [
     './assets/vendor/purify.min.js'
 ];
 
+/* A response that arrived through a redirect cannot be used to answer a
+ * navigation: the browser rejects it and shows an error page. Some hosts
+ * redirect ./index.html to ./ (Cloudflare does), so without this the cached
+ * shell is unusable offline there. Rebuilding the response drops the
+ * "redirected" mark and keeps the body, status and headers. */
+async function cacheable(res) {
+    if (!res.redirected) return res;
+    return new Response(await res.blob(), {
+        status: res.status,
+        statusText: res.statusText,
+        headers: res.headers
+    });
+}
+
 self.addEventListener('install', (event) => {
     event.waitUntil((async () => {
         const cache = await caches.open(CACHE);
@@ -64,7 +79,7 @@ self.addEventListener('install', (event) => {
             try {
                 const res = await fetch(new Request(url, { cache: 'reload' }));
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                await cache.put(url, res);
+                await cache.put(url, await cacheable(res));
             } catch (err) {
                 console.warn('[sw] could not precache', url, err);
             }
@@ -133,9 +148,15 @@ self.addEventListener('fetch', (event) => {
                 // the shell. fetch() does NOT reject on a 404 or 500, so
                 // without these guards a typo'd URL would cache its error page
                 // as the app and break every later offline load.
+                // The shell is reachable as ./index.html and as ./ (the only
+                // form on a host that redirects the first to the second).
                 const shellPath = new URL('./index.html', self.location).pathname;
-                if (fresh.ok && fresh.type === 'basic' && url.pathname === shellPath) {
-                    cache.put('./index.html', fresh.clone());
+                const rootPath = new URL('./', self.location).pathname;
+                if (fresh.ok && fresh.type === 'basic' &&
+                        (url.pathname === shellPath || url.pathname === rootPath)) {
+                    event.waitUntil(cacheable(fresh.clone())
+                        .then((copy) => cache.put('./index.html', copy))
+                        .catch(() => { /* the precached copy stands */ }));
                 }
                 return fresh;
             } catch (err) {
@@ -163,7 +184,7 @@ self.addEventListener('fetch', (event) => {
             event.waitUntil((async () => {
                 try {
                     const fresh = await fetch(request);
-                    if (fresh.ok && fresh.type === 'basic') await cache.put(request, fresh.clone());
+                    if (fresh.ok && fresh.type === 'basic') await cache.put(request, await cacheable(fresh));
                 } catch (err) { /* offline: the cached copy stands */ }
             })());
             return hit;

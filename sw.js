@@ -25,7 +25,8 @@
  * fallback, agent command order, capped agent response).
  * v5: the agent panel gained the Claude connection (passphrase row in
  * index.html, its CSS, and the /api/agent client in agents.js).
- * v6: DOMPurify updated to 3.4.18 (and its integrity hash in index.html). */
+ * v6: DOMPurify updated to 3.4.18 and marked to 18.2.0 (and their integrity
+ * hashes in index.html). */
 const VERSION = 'v6';
 const CACHE = `pro-notes-${VERSION}`;
 

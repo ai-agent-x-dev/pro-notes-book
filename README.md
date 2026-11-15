@@ -4,9 +4,10 @@
 
 <sub>https://ai-agent-x-dev.github.io/pro-notes-book/</sub>
 
-**With the AI assistant:** [pro-notes-book.agent-x.workers.dev](https://pro-notes-book.agent-x.workers.dev/)
-is the same app running on Cloudflare with Claude connected (passphrase
-required). To connect your own, see [Connecting Claude](#connecting-claude).
+**Want the AI assistant?** It talks to Claude on your own copy, with your own
+Claude API key: see [Connecting Claude](#connecting-claude). The app also runs
+on Cloudflare at [pro-notes-book.agent-x.workers.dev](https://pro-notes-book.agent-x.workers.dev/),
+where no key is connected, so the assistant there answers local commands only.
 
 A local-first Markdown notes app. Your notes stay in your own browser — there is
 no account and no server-side copy. The one exception is opt-in: if you deploy

@@ -24,8 +24,9 @@
  * v4: bug-fix release of all four scripts (cross-tab sync, notebook
  * fallback, agent command order, capped agent response).
  * v5: the agent panel gained the Claude connection (passphrase row in
- * index.html, its CSS, and the /api/agent client in agents.js). */
-const VERSION = 'v5';
+ * index.html, its CSS, and the /api/agent client in agents.js).
+ * v6: DOMPurify updated to 3.4.18 (and its integrity hash in index.html). */
+const VERSION = 'v6';
 const CACHE = `pro-notes-${VERSION}`;
 
 /* Paths are relative to the worker's own location, not the page. Using

@@ -348,7 +348,7 @@ The vendored components keep their own licences, shipped alongside them in
 | Library | Version | License |
 | --- | --- | --- |
 | [marked](https://github.com/markedjs/marked) | 15.0.7 | MIT |
-| [DOMPurify](https://github.com/cure53/DOMPurify) | 3.2.4 | Apache-2.0 OR MPL-2.0 |
+| [DOMPurify](https://github.com/cure53/DOMPurify) | 3.4.18 | Apache-2.0 OR MPL-2.0 |
 | [Inter](https://github.com/rsms/inter) | v20 (variable) | SIL OFL 1.1 |
 
 DOMPurify is dual-licensed; comply with either Apache-2.0 or MPL-2.0. The

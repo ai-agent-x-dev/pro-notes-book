@@ -23,7 +23,7 @@
  *                       an open endpoint lets anyone spend your API credit.
  *
  * Optional plain variables:
- *   AGENT_MODEL         default claude-opus-5
+ *   AGENT_MODEL         default claude-opus-5-5
  *   AGENT_EFFORT        low | medium | high | xhigh | max (default medium)
  *   AGENT_MAX_TOKENS    reply ceiling in tokens (default 8192)
  *
@@ -207,7 +207,7 @@ async function handleAgent(request, env) {
         "anthropic-beta": "server-side-fallback-2026-07-01"
       },
       body: JSON.stringify({
-        model: env.AGENT_MODEL || "claude-opus-5",
+        model: env.AGENT_MODEL || "claude-opus-5-5",
         max_tokens: maxTokens,
         fallbacks: "default",
         output_config: { effort },

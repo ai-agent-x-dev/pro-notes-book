@@ -256,7 +256,7 @@ Variables*):
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `AGENT_MODEL` | `claude-opus-5` | Claude model ID |
+| `AGENT_MODEL` | `claude-opus-5-5` | Claude model ID |
 | `AGENT_EFFORT` | `medium` | `low` … `max`: depth of reasoning vs. cost and speed |
 | `AGENT_MAX_TOKENS` | `8192` | Longest reply, capped at 32000 |
 
